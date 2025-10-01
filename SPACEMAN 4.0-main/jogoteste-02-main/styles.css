@@ -1,0 +1,40 @@
+/* Reseta as margens e padding para todos os elementos */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+/* Estilo do corpo da página */
+body {
+    background-color: black; /* Fundo preto */
+    font-family: Arial, sans-serif;
+    color: white;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh; /* Ocupa toda a altura da tela */
+}
+
+/* O container que envolve o canvas e o placar */
+#game-container {
+    position: relative;
+    text-align: center;
+}
+
+/* O canvas onde o jogo será desenhado */
+#gameCanvas {
+    background-color: #000; /* Fundo do canvas */
+    border: 2px solid white; /* Borda para destacar o canvas */
+}
+
+/* O placar do jogo, posicionado no topo esquerdo */
+#scoreboard {
+    position: absolute;
+    top: 20px;
+    left: 20px;
+    font-size: 18px;
+    display: flex;
+    justify-content: space-between;
+    width: 300px;
+}

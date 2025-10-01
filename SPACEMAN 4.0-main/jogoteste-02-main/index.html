@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+    <title>Jogo da Nave - Tela Cheia</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap');
+
+        html, body {
+            margin: 0; padding: 0; overflow: hidden; background: black;
+            height: 100%; width: 100%;
+            user-select: none;
+        }
+        canvas {
+            display: block;
+            background-color: #111;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="gameCanvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById("gameCanvas");
+        const ctx = canvas.getContext("2d");
+
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        // Variáveis principais
+        let score = 0;
+        let time = 0;
+        let lives = 3;
+        let gameOver = false;
+        let highScore = localStorage.getItem("highScore") || 0;
+
+        // Nave do jogador
+        let spaceship = {
+            width: 50,
+            height: 50,
+            speed: 6,
+            dx: 0,
+            x: 0,
+            y: 0,
+            hit: false,
+            hitTime: 0
+        };
+
+        function resetSpaceshipPosition() {
+            spaceship.x = canvas.width / 2 - spaceship.width / 2;
+            spaceship.y = canvas.height - spaceship.height - 20;
+        }
+        resetSpaceshipPosition();
+
+        // Listas de objetos
+        let obstacles = [];
+        let bullets = [];
+        let enemyBullets = [];
+        let enemies = [];
+
+        let lastObstacleTime = 0;
+        let spawnInterval = 800;
+        let baseObstacleSpeed = 3;
+
+        let lastScoreUpdate = Date.now();
+        let lastTimeUpdate = Date.now();
+
+        // Sons (coloque os arquivos no mesmo diretório)
+        const soundCollision = new Audio("collision.wav");
+        const soundLife = new Audio("life.wav");
+        const soundGameOver = new Audio("gameover.wav");
+        const soundShoot = new Audio("shoot.wav");
+        const soundEnemyShoot = new Audio("enemyshoot.wav");
+
+        // Imagem da nave
+        const spaceshipImg = new Image();
+        spaceshipImg.src = "TESLAX1000.png"; // coloque sua imagem na pasta do projeto
+
+        // Desenha nave do jogador
+        function drawSpaceship() {
+            if (spaceship.hit) {
+                // Pisca vermelho ao ser atingido
+                ctx.save();
+                ctx.globalAlpha = 0.6;
+                ctx.fillStyle = "red";
+                ctx.fillRect(spaceship.x, spaceship.y, spaceship.width, spaceship.height);
+                ctx.restore();
+            }
+            ctx.drawImage(
+                spaceshipImg,
+                spaceship.x,
+                spaceship.y,
+                spaceship.width,
+                spaceship.height
+            );
+            if (spaceship.hit && Date.now() - spaceship.hitTime > 500) {
+                spaceship.hit = false;
+            }
+        }
+
+        // Imagem do asteroide
+        const asteroidImg = new Image();
+        asteroidImg.src = "ASTEROID1.png"; // coloque sua imagem na pasta do projeto
+
+        // Asteroides
+        function drawObstacles() {
+            for (let i = 0; i < obstacles.length; i++) {
+                let o = obstacles[i];
+                ctx.drawImage(
+                    asteroidImg,
+                    o.x,
+                    o.y,
+                    o.width,
+                    o.height
+                );
+                o.y += o.speed;
+                if (o.y > canvas.height) {
+                    obstacles.splice(i, 1);
+                    i--;
+                }
+            }
+        }
+
+        function createObstacle() {
+            let quantidade = 2 + Math.floor(score / 200);
+            const asteroidWidth = 45;
+            const asteroidHeight = 72; // proporção da imagem
+            for (let j = 0; j < quantidade; j++) {
+                let xPos = Math.random() * (canvas.width - asteroidWidth);
+
+                let speedInc = Math.floor(score / 120);
+                obstacles.push({
+                    x: xPos,
+                    y: -asteroidHeight,
+                    width: asteroidWidth,
+                    height: asteroidHeight,
+                    speed: baseObstacleSpeed + speedInc,
+                    life: 15
+                });
+            }
+        }
+
+        // Balas do jogador
+        function drawBullets() {
+            for (let i = 0; i < bullets.length; i++) {
+                let b = bullets[i];
+                ctx.fillStyle = "yellow";
+                ctx.fillRect(b.x, b.y, b.width, b.height);
+                b.y -= b.speed;
+
+                if (b.y < 0) {
+                    bullets.splice(i, 1);
+                    i--;
+                }
+            }
+        }
+
+        // Balas inimigas
+        function drawEnemyBullets() {
+            for (let i = 0; i < enemyBullets.length; i++) {
+                let b = enemyBullets[i];
+                ctx.fillStyle = "red";
+                ctx.fillRect(b.x, b.y, b.width, b.height);
+                b.y += b.speed;
+
+                if (b.y > canvas.height) {
+                    enemyBullets.splice(i, 1);
+                    i--;
+                }
+            }
+        }
+
+
+        // Imagem do inimigo
+        const enemyImg = new Image();
+        enemyImg.src = "OVNI.png"; // coloque sua imagem na pasta do projeto
+
+        // Naves inimigas
+        function createEnemy() {
+            let enemy = {
+                x: Math.random() * (canvas.width - 60),
+                y: 50,
+                width: 60,
+                height: 60,
+                life: 100,
+                lastShot: Date.now(),
+                dx: (Math.random() < 0.5 ? -2 : 2) // movimento lateral
+            };
+            enemies.push(enemy);
+        }
+
+        function drawEnemies() {
+            for (let e of enemies) {
+                ctx.drawImage(
+                    enemyImg,
+                    e.x,
+                    e.y,
+                    e.width,
+                    e.height
+                );
+
+                // Barra de vida
+                ctx.fillStyle = "red";
+                ctx.fillRect(e.x, e.y - 10, e.width, 5);
+                ctx.fillStyle = "lime";
+                ctx.fillRect(e.x, e.y - 10, (e.life / 100) * e.width, 5);
+
+                // Movimento lateral
+                e.x += e.dx;
+                if (e.x <= 0 || e.x + e.width >= canvas.width) {
+                    e.dx *= -1;
+                }
+
+                // Atirar
+                if (Date.now() - e.lastShot > 1500) {
+                    enemyBullets.push({
+                        x: e.x + e.width / 2 - 3,
+                        y: e.y + e.height,
+                        width: 6,
+                        height: 15,
+                        speed: 7
+                    });
+                    e.lastShot = Date.now();
+                    soundEnemyShoot.play();
+                }
+            }
+        }
+
+        // Colisões
+        function checkCollision() {
+            // Nave com asteroides
+            for (let o of obstacles) {
+                if (
+                    spaceship.x < o.x + o.width &&
+                    spaceship.x + spaceship.width > o.x &&
+                    spaceship.y < o.y + o.height &&
+                    spaceship.y + spaceship.height > o.y
+                ) {
+                    if (!spaceship.hit) {
+                        if (lives > 1) {
+                            lives--;
+                            spaceship.hit = true;
+                            spaceship.hitTime = Date.now();
+                            soundCollision.play();
+                        } else {
+                            gameOver = true;
+                            soundGameOver.play();
+                        }
+                    }
+                }
+            }
+
+            // Tiros do jogador com asteroides
+            for (let i = 0; i < bullets.length; i++) {
+                let b = bullets[i];
+                for (let j = 0; j < obstacles.length; j++) {
+                    let o = obstacles[j];
+                    if (
+                        b.x < o.x + o.width &&
+                        b.x + b.width > o.x &&
+                        b.y < o.y + o.height &&
+                        b.y + b.height > o.y
+                    ) {
+                        o.life -= 25;
+                        bullets.splice(i, 1);
+                        i--;
+                        if (o.life <= 0) {
+                            obstacles.splice(j, 1);
+                            score += 20;
+                        }
+                        break;
+                    }
+                }
+            }
+
+            // Tiros do jogador com inimigos
+            for (let i = 0; i < bullets.length; i++) {
+                let b = bullets[i];
+                for (let j = 0; j < enemies.length; j++) {
+                    let e = enemies[j];
+                    if (
+                        b.x < e.x + e.width &&
+                        b.x + b.width > e.x &&
+                        b.y < e.y + e.height &&
+                        b.y + b.height > e.y
+                    ) {
+                        e.life -= 25;
+                        bullets.splice(i, 1);
+                        i--;
+                        if (e.life <= 0) {
+                            enemies.splice(j, 1);
+                            score += 100;
+                        }
+                        break;
+                    }
+                }
+            }
+
+            // Tiros inimigos com nave do jogador
+            for (let i = 0; i < enemyBullets.length; i++) {
+                let b = enemyBullets[i];
+                if (
+                    spaceship.x < b.x + b.width &&
+                    spaceship.x + spaceship.width > b.x &&
+                    spaceship.y < b.y + b.height &&
+                    spaceship.y + spaceship.height > b.y
+                ) {
+                    enemyBullets.splice(i, 1);
+                    i--;
+                    if (!spaceship.hit) {
+                        if (lives > 1) {
+                            lives--;
+                            spaceship.hit = true;
+                            spaceship.hitTime = Date.now();
+                            soundCollision.play();
+                        } else {
+                            gameOver = true;
+                            soundGameOver.play();
+                        }
+                    }
+                }
+            }
+        }
+
+        // Pontuação e tempo
+        function updateScore() {
+            score++;
+            if (score % 1000 === 0 && score > 0) {
+                lives++;
+                soundLife.play();
+            }
+            if (score % 120 === 0) {
+                spawnInterval = Math.max(300, spawnInterval - 50);
+            }
+            if (score % 200 === 0) {
+                createEnemy();
+            }
+        }
+
+        function updateTime() {
+            time++;
+        }
+
+        // HUD
+        function drawHUD() {
+            ctx.fillStyle = "white";
+            ctx.font = "20px Orbitron";
+            ctx.textAlign = "left";
+            ctx.fillText(`Pontos: ${score}`, 20, 30);
+            ctx.fillText(`Vidas: ${lives}`, 20, 60);
+            ctx.fillText(`Tempo: ${time}s`, 20, 90);
+            ctx.textAlign = "right";
+            ctx.fillText(`Recorde: ${highScore}`, canvas.width - 20, 30);
+        }
+
+        // Game Over
+        function drawGameOver() {
+            ctx.fillStyle = "red";
+            ctx.font = "72px Orbitron";
+            ctx.textAlign = "center";
+            ctx.shadowColor = "black";
+            ctx.shadowBlur = 15;
+            ctx.fillText("GAME OVER", canvas.width / 2, canvas.height / 2 - 40);
+
+            ctx.font = "32px Orbitron";
+            ctx.fillStyle = "white";
+            ctx.shadowBlur = 0;
+            ctx.fillText(`Recorde: ${highScore}`, canvas.width / 2, canvas.height / 2 + 20);
+            ctx.fillText("Pressione ESPAÇO para reiniciar", canvas.width / 2, canvas.height / 2 + 70);
+        }
+
+        // Loop principal
+        function updateGame() {
+            if (gameOver) {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                drawGameOver();
+
+                if (score > highScore) {
+                    highScore = score;
+                    localStorage.setItem("highScore", highScore);
+                }
+                return;
+            }
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            drawSpaceship();
+            drawObstacles();
+            drawBullets();
+            drawEnemyBullets();
+            drawEnemies();
+            checkCollision();
+            drawHUD();
+
+            let now = Date.now();
+
+            if (now - lastScoreUpdate > 100) {
+                updateScore();
+                lastScoreUpdate = now;
+            }
+
+            if (now - lastTimeUpdate > 1000) {
+                updateTime();
+                lastTimeUpdate = now;
+            }
+
+            if (now - lastObstacleTime > spawnInterval) {
+                createObstacle();
+                lastObstacleTime = now;
+            }
+
+            spaceship.x += spaceship.dx;
+            if (spaceship.x < 0) spaceship.x = 0;
+            if (spaceship.x + spaceship.width > canvas.width) spaceship.x = canvas.width - spaceship.width;
+
+            requestAnimationFrame(updateGame);
+        }
+
+        // Reiniciar
+        function restartGame() {
+            score = 0;
+            time = 0;
+            lives = 3;
+            gameOver = false;
+            obstacles = [];
+            bullets = [];
+            enemyBullets = [];
+            enemies = [];
+            spawnInterval = 800;
+            resetSpaceshipPosition();
+            spaceship.dx = 0;
+            spaceship.hit = false;
+            lastScoreUpdate = Date.now();
+            lastTimeUpdate = Date.now();
+            lastObstacleTime = Date.now();
+            updateGame();
+        }
+
+        // Controles
+        function moveRight() { spaceship.dx = spaceship.speed; }
+        function moveLeft() { spaceship.dx = -spaceship.speed; }
+        function stop() { spaceship.dx = 0; }
+
+        function shoot() {
+            bullets.push({
+                x: spaceship.x + spaceship.width / 2 - 3,
+                y: spaceship.y,
+                width: 6,
+                height: 15,
+                speed: 10
+            });
+            soundShoot.play();
+        }
+
+        window.addEventListener("keydown", (e) => {
+            if (!gameOver) {
+                if (e.key === "ArrowRight") moveRight();
+                if (e.key === "ArrowLeft") moveLeft();
+                if (e.key.toLowerCase() === "s") shoot();
+            } else {
+                if (e.key === " " || e.key === "Spacebar") {
+                    restartGame();
+                }
+            }
+        });
+
+        window.addEventListener("keyup", (e) => {
+            if (e.key === "ArrowRight" || e.key === "ArrowLeft") stop();
+        });
+
+        updateGame();
+    </script>
+</body>
+</html>
